@@ -1,0 +1,24 @@
+{
+    "name": "jnvsor/boltkint",
+    "description": "Kint support for Bolt",
+    "type": "bolt-extension",
+    "keywords": ["developer", "debug"],
+    "require": {
+        "bolt/bolt": ">=2.0.0,<3.0.0",
+        "raveren/kint": "^1.0"
+    },
+    "authors": [
+        {
+            "name": "Jonathan Vollebregt",
+            "email": "jnvsor@gmail.com"
+        }
+    ],
+    "autoload": {
+        "files": [
+            "init.php"
+        ],
+        "psr-4": {
+            "Bolt\\Extension\\jnvsor\\boltkint\\": ""
+        }
+    }
+}
