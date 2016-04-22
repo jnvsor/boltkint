@@ -17,7 +17,11 @@ class Extension extends \Bolt\BaseExtension
         \Kint::enabled($this->app['config']->get('general/debug', false));
 
         foreach (['d', 'dd', 'ddd', 's', 'sd'] as $func) {
-            $this->addTwigFunction($func, 'debug', ['is_safe' => ['html']]);
+            $this->addTwigFunction($func, 'debug', [
+                'is_safe' => ['html'],
+                'needs_environment' => true,
+                'is_variadic' => true,
+            ]);
         }
 
         \Kint::$aliases['methods'][] = [strtolower(get_class($this)), 'debug'];
@@ -88,48 +92,58 @@ class Extension extends \Bolt\BaseExtension
     /**
      * Gets information from the calling template
      *
-     * @return array Calling function, parameters are trace, arguments
+     * @param TwigEnvironment $env The twig environment
+     * @param array $args The arguments
+     *
+     * @return array Calling function, parameters are trace
      */
-    private function getInfo(array $args)
+    private function getInfo(\Twig_Environment $env, array $args)
     {
-        $trace = debug_backtrace(true, 4);
+        list($callframe, $templateframe) = array_slice(debug_backtrace(true, 4), 2);
 
-        if (isset($trace[3]['object'])) {
-            // Read the file from the cache to determine calling method and arguments
-            if (is_readable($trace[2]['file'])) {
-                $txt = file_get_contents($trace[2]['file']);
-            }
-
-            // If it's not cached, reproduce the source by compiling it
-            else {
-                $env = $trace[3]['object']->getEnvironment();
-                $tpl = $trace[3]['object']->getTemplateName();
-                $txt = $env->compileSource($env->getLoader()->getSource($tpl), $tpl);
-            }
-
-            // Get the line in question, and parse it for the called function and arguments
-            $line = explode("\n", $txt)[$trace[2]['line'] - 1];
-            $matches = [];
-            preg_match('/echo call_user_func_array\(\\$this->env->getFunction\(\'([^\']+)\'\)->getCallable\(\), array\(([^\)]*)/', $line, $matches);
-
-            if ($matches) {
-                return [$matches[1], $args === [1] && $matches[2] === '1', $args];
-            }
-
+        if (!isset($callframe['line'], $callframe['file'], $templateframe['object'])) {
+            return;
         }
 
-        return ['d', false, array_merge(["Error: Could not determine calling function signature"], $args)];
+        $file = $callframe['file'];
+        $line = $callframe['line'] - 1;
+        $template = $templateframe['object'];
+
+        if (is_readable($file)) {
+            // Read the file from the cache to determine calling method and arguments
+            $text = file_get_contents($file);
+        } else {
+            // If it's not cached, reproduce the source by compiling it
+            $template_name = $template->getTemplateName();
+            $text = $env->compileSource($env->getLoader()->getSource($template_name), $template_name);
+        }
+
+        // Get the line in question, and parse it for the called function and arguments
+        $matches = [];
+        preg_match(
+            '/->getFunction\(\'([^\']+)\'\)->getCallable\(\), array\(\$this->env, array\(0 => ([^\)]*)\)/',
+            explode("\n", $text)[$line],
+            $matches
+        );
+
+        if ($matches) {
+            return [$matches[1], $args === [1] && $matches[2] === '1'];
+        }
     }
 
-    public function debug()
+    public function debug(\Twig_Environment $env, array $args = [])
     {
-        list($func, $trace, $args) = $this->getInfo(func_get_args());
+        list($func, $trace) = $this->getInfo($env, $args);
+
+        if (empty($func)) {
+            $func = 'd';
+            array_unshift($args, "Error: Could not determine calling function signature");
+        }
 
         if ($trace) {
             return $this->trace($func);
         } else {
             return $this->dump($func, $args);
         }
-
     }
 }
